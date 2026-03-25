@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>3D Snap Trainer</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        #crosshair { position: fixed; top: 50%; left: 50%; width: 10px; height: 10px; border: 2px solid #0f0; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 10; }
+        #ui { position: fixed; top: 20px; left: 20px; color: white; z-index: 10; }
+    </style>
+</head>
+<body>
+    <div id="crosshair"></div>
+    <div id="ui">Click to Start | Targets Hit: <span id="score">0</span></div>
+
+    <script type="module">
+        import * as THREE from 'https://cdn.skypack.dev/three@0.132.2';
+
+        // 1. Setup Scene, Camera, and Renderer
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 2. Add Lighting & Floor
+        const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
+        scene.add(light);
+        const grid = new THREE.GridHelper(100, 50, 0x222222, 0x111111);
+        scene.add(grid);
+
+        // 3. Pointer Lock (FPS Controls)
+        document.body.addEventListener('click', () => {
+            document.body.requestPointerLock();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (document.pointerLockElement === document.body) {
+                camera.rotation.y -= e.movementX * 0.002;
+                camera.rotation.x -= e.movementY * 0.002;
+                camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+            }
+        });
+
+        // 4. Target Logic
+        let score = 0;
+        const targetGeometry = new THREE.SphereGeometry(1, 32, 32);
+        const targetMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+        
+        function spawnTarget() {
+            const target = new THREE.Mesh(targetGeometry, targetMaterial);
+            target.position.set(Math.random() * 20 - 10, Math.random() * 10 + 2, -Math.random() * 20 - 5);
+            scene.add(target);
+            return target;
+        }
+
+        let activeTarget = spawnTarget();
+
+        // 5. Shooting (Raycasting)
+        const raycaster = new THREE.Raycaster();
+        window.addEventListener('mousedown', () => {
+            if (document.pointerLockElement !== document.body) return;
+
+            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            const intersects = raycaster.intersectObject(activeTarget);
+
+            if (intersects.length > 0) {
+                scene.remove(activeTarget);
+                score++;
+                document.getElementById('score').innerText = score;
+                activeTarget = spawnTarget();
+            }
+        });
+
+        // 6. Render Loop
+        camera.rotation.order = 'YXZ'; // Prevents "Gimbal Lock"
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
