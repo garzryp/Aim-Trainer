@@ -1,24 +1,21 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Minecraft Hitbox Trainer</title>
+    <title>Mace Drop-Hit Trainer</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #050505; font-family: 'Segoe UI', sans-serif; }
-        #crosshair { 
-            position: fixed; top: 50%; left: 50%; width: 20px; height: 20px; 
-            border: 2px solid rgba(255,255,255,0.8); transform: translate(-50%, -50%); 
-            pointer-events: none; z-index: 10; 
-        }
-        #ui { position: fixed; top: 20px; left: 20px; color: white; z-index: 10; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
-        input { cursor: pointer; }
+        body { margin: 0; overflow: hidden; background: #050505; font-family: sans-serif; }
+        #crosshair { position: fixed; top: 50%; left: 50%; width: 10px; height: 10px; border: 1px solid white; transform: translate(-50%, -50%); pointer-events: none; }
+        #ui { position: fixed; top: 20px; left: 20px; color: white; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px; border: 1px solid #333; }
+        .success { color: #00ff00; }
+        .fail { color: #ff4444; }
     </style>
 </head>
 <body>
     <div id="crosshair"></div>
     <div id="ui">
-        <b>Hitboxes: <span id="score">0</span></b><br>
-        Sens: <input type="range" id="sens" min="1" max="10" value="5">
-        <p style="font-size: 10px; margin: 5px 0 0;">Click screen to lock mouse</p>
+        <div id="status">PRESS SPACE TO DROP</div>
+        Distance: <span id="dist">0</span>m<br>
+        Score: <span id="score">0</span>
     </div>
 
     <script type="module">
@@ -30,84 +27,101 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // Minecraft Eye Level
-        camera.position.y = 1.62;
+        // Environment
+        scene.add(new THREE.GridHelper(100, 100, 0x222222, 0x111111));
+        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        
+        // Physics/State Variables
+        let velocity = 0;
+        let isFalling = false;
+        let score = 0;
+        const GRAVITY = 0.015;
+        const REACH = 3.0; // Minecraft hit distance
+        const START_HEIGHT = 8;
 
-        // Ground Grid
-        const grid = new THREE.GridHelper(100, 100, 0x444444, 0x222222);
-        scene.add(grid);
+        camera.position.set(0, START_HEIGHT, 0);
+        camera.rotation.order = 'YXZ';
 
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        scene.add(ambientLight);
-        const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-        sun.position.set(5, 10, 7);
-        scene.add(sun);
+        // Target (0.6 x 1.8 Hitbox)
+        const target = new THREE.Mesh(
+            new THREE.BoxGeometry(0.6, 1.8, 0.6),
+            new THREE.MeshPhongMaterial({ color: 0xff0000, wireframe: true })
+        );
+        target.position.set(0, 0.9, -2); // Set 2 blocks in front
+        scene.add(target);
 
-        // Pointer Lock & Sens
-        let sensitivity = 0.002;
-        document.getElementById('sens').oninput = (e) => {
-            sensitivity = e.target.value * 0.0004;
-        };
-
+        // Controls
         document.body.onclick = () => document.body.requestPointerLock();
-
         document.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement === document.body) {
-                camera.rotation.y -= e.movementX * sensitivity;
-                camera.rotation.x -= e.movementY * sensitivity;
+            if (document.pointerLockElement) {
+                camera.rotation.y -= e.movementX * 0.002;
+                camera.rotation.x -= e.movementY * 0.002;
                 camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
             }
         });
 
-        // Hitbox Target (0.6 x 1.8 x 0.6)
-        const boxGeo = new THREE.BoxGeometry(0.6, 1.8, 0.6);
-        const boxMat = new THREE.MeshPhongMaterial({ color: 0xffffff, wireframe: false });
-        
-        // Red wireframe for the "Hitbox" look
-        const wireGeo = new THREE.EdgesGeometry(boxGeo);
-        const wireMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !isFalling) {
+                isFalling = true;
+                document.getElementById('status').innerText = "FALLING - AIM & HIT!";
+            }
+        });
 
-        function createTarget() {
-            const group = new THREE.Group();
-            const mesh = new THREE.Mesh(boxGeo, boxMat);
-            const wire = new THREE.LineSegments(wireGeo, wireMat);
-            
-            group.add(mesh);
-            group.add(wire);
-            
-            // Random position in front of player
-            group.position.set(
-                (Math.random() - 0.5) * 15, 
-                0.9, // Half height so it sits on floor
-                -Math.random() * 10 - 5
-            );
-            
-            scene.add(group);
-            return group;
-        }
-
-        let currentTarget = createTarget();
-        let score = 0;
         const raycaster = new THREE.Raycaster();
-
-        window.onclick = (e) => {
-            if (document.pointerLockElement !== document.body) return;
+        window.onclick = () => {
+            if (!isFalling || document.pointerLockElement !== document.body) return;
 
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-            const intersects = raycaster.intersectObjects(currentTarget.children);
+            const intersects = raycaster.intersectObject(target);
+            
+            // Check distance to target center
+            const distance = camera.position.distanceTo(target.position);
+            const statusEl = document.getElementById('status');
 
             if (intersects.length > 0) {
-                scene.remove(currentTarget);
-                score++;
-                document.getElementById('score').innerText = score;
-                currentTarget = createTarget();
+                if (distance <= REACH) {
+                    score++;
+                    statusEl.innerText = "CRIT HIT!";
+                    statusEl.className = "success";
+                    resetPos();
+                } else {
+                    statusEl.innerText = "TOO FAR! (" + distance.toFixed(1) + "m)";
+                    statusEl.className = "fail";
+                }
             }
         };
 
-        camera.rotation.order = 'YXZ';
+        function resetPos() {
+            isFalling = false;
+            velocity = 0;
+            camera.position.y = START_HEIGHT;
+            document.getElementById('score').innerText = score;
+            // Randomize target position slightly for variety
+            target.position.x = (Math.random() - 0.5) * 4;
+            target.position.z = -Math.random() * 2 - 1;
+        }
+
         function animate() {
             requestAnimationFrame(animate);
+            
+            if (isFalling) {
+                velocity += GRAVITY;
+                camera.position.y -= velocity;
+
+                // Ground collision
+                if (camera.position.y <= 1.62) {
+                    camera.position.y = 1.62;
+                    if (isFalling) {
+                        document.getElementById('status').innerText = "LANDED - MISSED CRIT";
+                        document.getElementById('status').className = "fail";
+                        setTimeout(resetPos, 1000);
+                        isFalling = false;
+                    }
+                }
+            }
+
+            const d = camera.position.distanceTo(target.position);
+            document.getElementById('dist').innerText = d.toFixed(1);
             renderer.render(scene, camera);
         }
         animate();
