@@ -1,21 +1,22 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mace Drop-Hit Trainer</title>
+    <title>Mace Master 3D</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #050505; font-family: sans-serif; }
-        #crosshair { position: fixed; top: 50%; left: 50%; width: 10px; height: 10px; border: 1px solid white; transform: translate(-50%, -50%); pointer-events: none; }
-        #ui { position: fixed; top: 20px; left: 20px; color: white; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px; border: 1px solid #333; }
-        .success { color: #00ff00; }
-        .fail { color: #ff4444; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+        #crosshair { position: fixed; top: 50%; left: 50%; width: 12px; height: 12px; border: 1px solid #0f0; transform: translate(-50%, -50%); pointer-events: none; z-index: 10; }
+        #ui { position: fixed; top: 20px; left: 20px; color: #0f0; background: rgba(0,0,0,0.8); padding: 15px; border: 1px solid #333; pointer-events: none; }
+        .stat-val { color: #fff; }
     </style>
 </head>
 <body>
     <div id="crosshair"></div>
     <div id="ui">
-        <div id="status">PRESS SPACE TO DROP</div>
-        Distance: <span id="dist">0</span>m<br>
-        Score: <span id="score">0</span>
+        <b>MACE TRAINER</b><br>
+        DIST: <span id="dist" class="stat-val">0</span>m<br>
+        ALT: <span id="alt" class="stat-val">0</span>m<br>
+        HITS: <span id="score" class="stat-val">0</span><br>
+        <div id="msg" style="margin-top:10px; font-size: 10px;">WASD TO MOVE | CLICK TO LOCK</div>
     </div>
 
     <script type="module">
@@ -28,30 +29,39 @@
         document.body.appendChild(renderer.domElement);
 
         // Environment
-        scene.add(new THREE.GridHelper(100, 100, 0x222222, 0x111111));
-        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-        
-        // Physics/State Variables
-        let velocity = 0;
-        let isFalling = false;
-        let score = 0;
-        const GRAVITY = 0.015;
-        const REACH = 3.0; // Minecraft hit distance
-        const START_HEIGHT = 8;
+        scene.add(new THREE.GridHelper(200, 100, 0x222222, 0x111111));
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(5, 10, 7);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
-        camera.position.set(0, START_HEIGHT, 0);
+        // Player Constants
+        const EYE_HEIGHT = 1.62;
+        const START_HEIGHT = 25; // Higher drop
+        const REACH = 3.0;
+        const GRAVITY = 0.012;
+        const MOVE_SPEED = 0.1;
+
+        let velocity = 0;
+        let score = 0;
+        let keys = {};
+
+        camera.position.set(0, START_HEIGHT, 5);
         camera.rotation.order = 'YXZ';
 
-        // Target (0.6 x 1.8 Hitbox)
+        // White Solid Hitbox
         const target = new THREE.Mesh(
             new THREE.BoxGeometry(0.6, 1.8, 0.6),
-            new THREE.MeshPhongMaterial({ color: 0xff0000, wireframe: true })
+            new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x444444 })
         );
-        target.position.set(0, 0.9, -2); // Set 2 blocks in front
+        target.position.set(0, 0.9, 0);
         scene.add(target);
 
-        // Controls
+        // Input Listeners
         document.body.onclick = () => document.body.requestPointerLock();
+        window.onkeydown = (e) => keys[e.code] = true;
+        window.onkeyup = (e) => keys[e.code] = false;
+
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement) {
                 camera.rotation.y -= e.movementX * 0.002;
@@ -60,68 +70,65 @@
             }
         });
 
-        window.addEventListener('keydown', (e) => {
-            if (e.code === 'Space' && !isFalling) {
-                isFalling = true;
-                document.getElementById('status').innerText = "FALLING - AIM & HIT!";
-            }
-        });
-
+        // Shooting Logic
         const raycaster = new THREE.Raycaster();
-        window.onclick = () => {
-            if (!isFalling || document.pointerLockElement !== document.body) return;
+        window.onmousedown = (e) => {
+            if (document.pointerLockElement !== document.body || e.button !== 0) return;
 
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
             const intersects = raycaster.intersectObject(target);
-            
-            // Check distance to target center
             const distance = camera.position.distanceTo(target.position);
-            const statusEl = document.getElementById('status');
 
-            if (intersects.length > 0) {
-                if (distance <= REACH) {
-                    score++;
-                    statusEl.innerText = "CRIT HIT!";
-                    statusEl.className = "success";
-                    resetPos();
-                } else {
-                    statusEl.innerText = "TOO FAR! (" + distance.toFixed(1) + "m)";
-                    statusEl.className = "fail";
-                }
+            if (intersects.length > 0 && distance <= REACH) {
+                score++;
+                document.getElementById('score').innerText = score;
+                resetPlayer(); // Go back up on hit
             }
         };
 
-        function resetPos() {
-            isFalling = false;
+        function resetPlayer() {
             velocity = 0;
             camera.position.y = START_HEIGHT;
-            document.getElementById('score').innerText = score;
-            // Randomize target position slightly for variety
-            target.position.x = (Math.random() - 0.5) * 4;
-            target.position.z = -Math.random() * 2 - 1;
+            // Randomize target position slightly for new challenge
+            target.position.x = (Math.random() - 0.5) * 10;
+            target.position.z = (Math.random() - 0.5) * 10;
+        }
+
+        function updateMovement() {
+            if (!document.pointerLockElement) return;
+
+            const direction = new THREE.Vector3();
+            if (keys['KeyW']) direction.z -= 1;
+            if (keys['KeyS']) direction.z += 1;
+            if (keys['KeyA']) direction.x -= 1;
+            if (keys['KeyD']) direction.x += 1;
+
+            direction.applyQuaternion(camera.quaternion);
+            direction.y = 0; // Keep movement on horizontal plane
+            camera.position.addScaledVector(direction.normalize(), MOVE_SPEED);
         }
 
         function animate() {
             requestAnimationFrame(animate);
-            
-            if (isFalling) {
-                velocity += GRAVITY;
-                camera.position.y -= velocity;
+            updateMovement();
 
-                // Ground collision
-                if (camera.position.y <= 1.62) {
-                    camera.position.y = 1.62;
-                    if (isFalling) {
-                        document.getElementById('status').innerText = "LANDED - MISSED CRIT";
-                        document.getElementById('status').className = "fail";
-                        setTimeout(resetPos, 1000);
-                        isFalling = false;
-                    }
-                }
+            // Gravity
+            velocity += GRAVITY;
+            camera.position.y -= velocity;
+
+            // Ground Check
+            if (camera.position.y <= EYE_HEIGHT) {
+                camera.position.y = EYE_HEIGHT;
+                velocity = 0;
+                // Auto-reset if you hit the ground without clicking
+                setTimeout(resetPlayer, 1000);
             }
 
+            // UI Updates
             const d = camera.position.distanceTo(target.position);
             document.getElementById('dist').innerText = d.toFixed(1);
+            document.getElementById('alt').innerText = (camera.position.y - EYE_HEIGHT).toFixed(1);
+
             renderer.render(scene, camera);
         }
         animate();
