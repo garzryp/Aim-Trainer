@@ -1,22 +1,20 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mace Master 3D</title>
+    <title>Mace Trainer</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+        body { margin: 0; overflow: hidden; background: #050505; font-family: sans-serif; }
         #crosshair { position: fixed; top: 50%; left: 50%; width: 12px; height: 12px; border: 1px solid #0f0; transform: translate(-50%, -50%); pointer-events: none; z-index: 10; }
-        #ui { position: fixed; top: 20px; left: 20px; color: #0f0; background: rgba(0,0,0,0.8); padding: 15px; border: 1px solid #333; pointer-events: none; }
-        .stat-val { color: #fff; }
+        #ui { position: fixed; top: 20px; left: 20px; color: #0f0; background: rgba(0,0,0,0.8); padding: 15px; border: 1px solid #333; }
+        .stat { color: #fff; font-weight: bold; }
     </style>
 </head>
 <body>
     <div id="crosshair"></div>
     <div id="ui">
-        <b>MACE TRAINER</b><br>
-        DIST: <span id="dist" class="stat-val">0</span>m<br>
-        ALT: <span id="alt" class="stat-val">0</span>m<br>
-        HITS: <span id="score" class="stat-val">0</span><br>
-        <div id="msg" style="margin-top:10px; font-size: 10px;">WASD TO MOVE | CLICK TO LOCK</div>
+        <b>STATIC TARGET MODE</b><br>
+        DIST: <span id="dist" class="stat">0</span>m<br>
+        HITS: <span id="score" class="stat">0</span>
     </div>
 
     <script type="module">
@@ -28,52 +26,67 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // Environment
-        scene.add(new THREE.GridHelper(200, 100, 0x222222, 0x111111));
+        scene.add(new THREE.GridHelper(100, 50, 0x444444, 0x222222));
         const light = new THREE.DirectionalLight(0xffffff, 1);
         light.position.set(5, 10, 7);
         scene.add(light);
-        scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+        scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
-        // Player Constants
         const EYE_HEIGHT = 1.62;
-        const START_HEIGHT = 25; // Higher drop
+        const START_HEIGHT = 20;
         const REACH = 3.0;
         const GRAVITY = 0.012;
-        const MOVE_SPEED = 0.1;
-
+        
         let velocity = 0;
         let score = 0;
+        let isResetting = false;
         let keys = {};
 
-        camera.position.set(0, START_HEIGHT, 5);
-        camera.rotation.order = 'YXZ';
-
-        // White Solid Hitbox
+        // The White Hitbox
         const target = new THREE.Mesh(
             new THREE.BoxGeometry(0.6, 1.8, 0.6),
-            new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x444444 })
+            new THREE.MeshStandardMaterial({ color: 0xffffff })
         );
-        target.position.set(0, 0.9, 0);
         scene.add(target);
 
-        // Input Listeners
+        // This ONLY runs once per round
+        function spawnTargetInFront() {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 3 + Math.random() * 5; // Spawn 3-8 blocks away from center
+            target.position.set(
+                Math.cos(angle) * radius, 
+                0.9, 
+                Math.sin(angle) * radius
+            );
+        }
+
+        function startNewRound() {
+            isResetting = false;
+            velocity = 0;
+            spawnTargetInFront(); // Lock the target position NOW
+            
+            camera.position.set(0, START_HEIGHT, 0);
+            camera.lookAt(target.position);
+        }
+
+        // Initial Start
+        startNewRound();
+
         document.body.onclick = () => document.body.requestPointerLock();
         window.onkeydown = (e) => keys[e.code] = true;
         window.onkeyup = (e) => keys[e.code] = false;
 
         document.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement) {
+            if (document.pointerLockElement && !isResetting) {
                 camera.rotation.y -= e.movementX * 0.002;
                 camera.rotation.x -= e.movementY * 0.002;
                 camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
             }
         });
 
-        // Shooting Logic
         const raycaster = new THREE.Raycaster();
         window.onmousedown = (e) => {
-            if (document.pointerLockElement !== document.body || e.button !== 0) return;
+            if (document.pointerLockElement !== document.body || isResetting) return;
 
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
             const intersects = raycaster.intersectObject(target);
@@ -82,55 +95,40 @@
             if (intersects.length > 0 && distance <= REACH) {
                 score++;
                 document.getElementById('score').innerText = score;
-                resetPlayer(); // Go back up on hit
+                isResetting = true;
+                setTimeout(startNewRound, 500); // 0.5s delay after hit
             }
         };
 
-        function resetPlayer() {
-            velocity = 0;
-            camera.position.y = START_HEIGHT;
-            // Randomize target position slightly for new challenge
-            target.position.x = (Math.random() - 0.5) * 10;
-            target.position.z = (Math.random() - 0.5) * 10;
-        }
-
-        function updateMovement() {
-            if (!document.pointerLockElement) return;
-
-            const direction = new THREE.Vector3();
-            if (keys['KeyW']) direction.z -= 1;
-            if (keys['KeyS']) direction.z += 1;
-            if (keys['KeyA']) direction.x -= 1;
-            if (keys['KeyD']) direction.x += 1;
-
-            direction.applyQuaternion(camera.quaternion);
-            direction.y = 0; // Keep movement on horizontal plane
-            camera.position.addScaledVector(direction.normalize(), MOVE_SPEED);
-        }
-
         function animate() {
             requestAnimationFrame(animate);
-            updateMovement();
 
-            // Gravity
-            velocity += GRAVITY;
-            camera.position.y -= velocity;
+            if (!isResetting) {
+                velocity += GRAVITY;
+                camera.position.y -= velocity;
 
-            // Ground Check
-            if (camera.position.y <= EYE_HEIGHT) {
-                camera.position.y = EYE_HEIGHT;
-                velocity = 0;
-                // Auto-reset if you hit the ground without clicking
-                setTimeout(resetPlayer, 1000);
+                if (camera.position.y <= EYE_HEIGHT) {
+                    camera.position.y = EYE_HEIGHT;
+                    isResetting = true;
+                    setTimeout(startNewRound, 1000); // 1s delay after landing
+                }
+
+                // Air-Strafe
+                const dir = new THREE.Vector3();
+                if (keys['KeyW']) dir.z -= 1;
+                if (keys['KeyS']) dir.z += 1;
+                if (keys['KeyA']) dir.x -= 1;
+                if (keys['KeyD']) dir.x += 1;
+                dir.applyQuaternion(camera.quaternion);
+                dir.y = 0;
+                camera.position.addScaledVector(dir.normalize(), 0.12);
             }
 
-            // UI Updates
-            const d = camera.position.distanceTo(target.position);
-            document.getElementById('dist').innerText = d.toFixed(1);
-            document.getElementById('alt').innerText = (camera.position.y - EYE_HEIGHT).toFixed(1);
-
+            document.getElementById('dist').innerText = camera.position.distanceTo(target.position).toFixed(1);
             renderer.render(scene, camera);
         }
+        
+        camera.rotation.order = 'YXZ';
         animate();
     </script>
 </body>
