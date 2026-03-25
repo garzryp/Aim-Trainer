@@ -1,78 +1,111 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>3D Snap Trainer</title>
+    <title>Minecraft Hitbox Trainer</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
-        #crosshair { position: fixed; top: 50%; left: 50%; width: 10px; height: 10px; border: 2px solid #0f0; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 10; }
-        #ui { position: fixed; top: 20px; left: 20px; color: white; z-index: 10; }
+        body { margin: 0; overflow: hidden; background: #050505; font-family: 'Segoe UI', sans-serif; }
+        #crosshair { 
+            position: fixed; top: 50%; left: 50%; width: 20px; height: 20px; 
+            border: 2px solid rgba(255,255,255,0.8); transform: translate(-50%, -50%); 
+            pointer-events: none; z-index: 10; 
+        }
+        #ui { position: fixed; top: 20px; left: 20px; color: white; z-index: 10; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
+        input { cursor: pointer; }
     </style>
 </head>
 <body>
     <div id="crosshair"></div>
-    <div id="ui">Click to Start | Targets Hit: <span id="score">0</span></div>
+    <div id="ui">
+        <b>Hitboxes: <span id="score">0</span></b><br>
+        Sens: <input type="range" id="sens" min="1" max="10" value="5">
+        <p style="font-size: 10px; margin: 5px 0 0;">Click screen to lock mouse</p>
+    </div>
 
     <script type="module">
         import * as THREE from 'https://cdn.skypack.dev/three@0.132.2';
 
-        // 1. Setup Scene, Camera, and Renderer
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // 2. Add Lighting & Floor
-        const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
-        scene.add(light);
-        const grid = new THREE.GridHelper(100, 50, 0x222222, 0x111111);
+        // Minecraft Eye Level
+        camera.position.y = 1.62;
+
+        // Ground Grid
+        const grid = new THREE.GridHelper(100, 100, 0x444444, 0x222222);
         scene.add(grid);
 
-        // 3. Pointer Lock (FPS Controls)
-        document.body.addEventListener('click', () => {
-            document.body.requestPointerLock();
-        });
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+        sun.position.set(5, 10, 7);
+        scene.add(sun);
+
+        // Pointer Lock & Sens
+        let sensitivity = 0.002;
+        document.getElementById('sens').oninput = (e) => {
+            sensitivity = e.target.value * 0.0004;
+        };
+
+        document.body.onclick = () => document.body.requestPointerLock();
 
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body) {
-                camera.rotation.y -= e.movementX * 0.002;
-                camera.rotation.x -= e.movementY * 0.002;
+                camera.rotation.y -= e.movementX * sensitivity;
+                camera.rotation.x -= e.movementY * sensitivity;
                 camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
             }
         });
 
-        // 4. Target Logic
-        let score = 0;
-        const targetGeometry = new THREE.SphereGeometry(1, 32, 32);
-        const targetMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+        // Hitbox Target (0.6 x 1.8 x 0.6)
+        const boxGeo = new THREE.BoxGeometry(0.6, 1.8, 0.6);
+        const boxMat = new THREE.MeshPhongMaterial({ color: 0xffffff, wireframe: false });
         
-        function spawnTarget() {
-            const target = new THREE.Mesh(targetGeometry, targetMaterial);
-            target.position.set(Math.random() * 20 - 10, Math.random() * 10 + 2, -Math.random() * 20 - 5);
-            scene.add(target);
-            return target;
+        // Red wireframe for the "Hitbox" look
+        const wireGeo = new THREE.EdgesGeometry(boxGeo);
+        const wireMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
+
+        function createTarget() {
+            const group = new THREE.Group();
+            const mesh = new THREE.Mesh(boxGeo, boxMat);
+            const wire = new THREE.LineSegments(wireGeo, wireMat);
+            
+            group.add(mesh);
+            group.add(wire);
+            
+            // Random position in front of player
+            group.position.set(
+                (Math.random() - 0.5) * 15, 
+                0.9, // Half height so it sits on floor
+                -Math.random() * 10 - 5
+            );
+            
+            scene.add(group);
+            return group;
         }
 
-        let activeTarget = spawnTarget();
-
-        // 5. Shooting (Raycasting)
+        let currentTarget = createTarget();
+        let score = 0;
         const raycaster = new THREE.Raycaster();
-        window.addEventListener('mousedown', () => {
+
+        window.onclick = (e) => {
             if (document.pointerLockElement !== document.body) return;
 
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-            const intersects = raycaster.intersectObject(activeTarget);
+            const intersects = raycaster.intersectObjects(currentTarget.children);
 
             if (intersects.length > 0) {
-                scene.remove(activeTarget);
+                scene.remove(currentTarget);
                 score++;
                 document.getElementById('score').innerText = score;
-                activeTarget = spawnTarget();
+                currentTarget = createTarget();
             }
-        });
+        };
 
-        // 6. Render Loop
-        camera.rotation.order = 'YXZ'; // Prevents "Gimbal Lock"
+        camera.rotation.order = 'YXZ';
         function animate() {
             requestAnimationFrame(animate);
             renderer.render(scene, camera);
